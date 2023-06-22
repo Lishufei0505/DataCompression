@@ -2,7 +2,9 @@
 import numpy as np
 import matplotlib
 matplotlib.use('TkAgg')
+import nimfa
 import matplotlib.pyplot as plt
+import scipy.sparse as spr
 import cv2
 import os
 
@@ -27,7 +29,22 @@ def read_directory(directory_name):
         file_list.append(str)
     return file_list
 
+def bright_Norm_one(filename, image):
 
+    Gamma = np.log(128.0/255.0) / np.log(cv2.mean(image)[0]/255.0)
+    lookUpTable = np.empty((1, 256), np.uint8)
+
+    for i in range(256):
+        lookUpTable[0, i] = np.clip(pow(i / 255.0, Gamma)*255.0, 0, 255)
+
+    imageNorm = cv2.LUT(image, lookUpTable)
+
+    return imageNorm
+
+
+#
+# # 读取的目录
+# bright_Norm('./Original_image')
 def divide_method1(img, m, n):  # 分割成m行n列
     print(img.shape)
     h, w = img.shape[0], img.shape[1]
@@ -89,76 +106,93 @@ def save_blocks(title, divide_image):  #
             # plt.imsave("./img_list/" + plotPath, divide_image[i, j, :], cmap='gray')  # 保存灰度图像
 
 
-def nmf(X, r, k, e):
-    '''
-    X是原始矩阵
-    r是分解的两个非负矩阵的隐变量维度，要远小于原始矩阵的维度
-    k是迭代次数
-    e是理想误差
+# def nmf(X, r, k, e):
+#     '''
+#     X是原始矩阵
+#     r是分解的两个非负矩阵的隐变量维度，要远小于原始矩阵的维度
+#     k是迭代次数
+#     e是理想误差
+#
+#     input X
+#     output U,V
+#     '''
+#     d, n = X.shape
+#     # print(d,n)
+#     # U = np.mat(random.random((d, r)))
+#     U = np.mat(np.random.rand(d, r))
+#     # V = np.mat(random.random((n, r)))
+#     V = np.mat(np.random.rand(n, r))
+#     # print(U, V)
+#
+#     x = 1
+#     for x in range(k):
+#         print('---------------------------------------------------')
+#         print('开始第', x, '轮迭代')
+#         # error
+#         X_pre = U * V.T
+#         E = X - X_pre
+#         # print E
+#         err = 0.0
+#         for i in range(d):
+#             for j in range(n):
+#                 err += E[i, j] * E[i, j]  # 二范数，欧式距离
+#         print('误差：', err)
+#
+#         if err < e:
+#             break
+#         # update U
+#         a_u = U * (V.T) * V
+#         b_u = X * V
+#         for i_1 in range(d):
+#             for j_1 in range(r):
+#                 if a_u[i_1, j_1] != 0:
+#                     U[i_1, j_1] = U[i_1, j_1] * b_u[i_1, j_1] / a_u[i_1, j_1]
+#         # print(U)
+#
+#         # update V
+#         a_v = V * (U.T) * U
+#         b_v = X.T * U
+#         print(r, n)
+#         for i_2 in range(n):
+#             for j_2 in range(r):
+#                 if a_v[i_2, j_2] != 0:
+#                     V[i_2, j_2] = V[i_2, j_2] * b_v[i_2, j_2] / a_v[i_2, j_2]
+#         # print(V)
+#         print('第', x, '轮迭代结束')
+#
+#     return U, V
 
-    input X
-    output U,V
-    '''
-    d, n = X.shape
-    # print(d,n)
-    # U = np.mat(random.random((d, r)))
-    U = np.mat(np.random.rand(d, r))
-    # V = np.mat(random.random((n, r)))
-    V = np.mat(np.random.rand(n, r))
-    # print(U, V)
 
-    x = 1
-    for x in range(k):
-        print('---------------------------------------------------')
-        print('开始第', x, '轮迭代')
-        # error
-        X_pre = U * V.T
-        E = X - X_pre
-        # print E
-        err = 0.0
-        for i in range(d):
-            for j in range(n):
-                err += E[i, j] * E[i, j]  # 二范数，欧式距离
-        print('误差：', err)
+def nmf(V):
 
-        if err < e:
-            break
-        # update U
-        a_u = U * (V.T) * V
-        b_u = X * V
-        for i_1 in range(d):
-            for j_1 in range(r):
-                if a_u[i_1, j_1] != 0:
-                    U[i_1, j_1] = U[i_1, j_1] * b_u[i_1, j_1] / a_u[i_1, j_1]
-        # print(U)
+    lsnmf = nimfa.Lsnmf(V, max_iter=10, rank=2)
+    print(V.shape)
+    lsnmf_fit = lsnmf()
 
-        # update V
-        a_v = V * (U.T) * U
-        b_v = X.T * U
-        print(r, n)
-        for i_2 in range(n):
-            for j_2 in range(r):
-                if a_v[i_2, j_2] != 0:
-                    V[i_2, j_2] = V[i_2, j_2] * b_v[i_2, j_2] / a_v[i_2, j_2]
-        # print(V)
-        print('第', x, '轮迭代结束')
+    W = lsnmf_fit.basis()
+    print("W:", W.shape)
+    print('Basis matrix:\n%s' % W)
 
-    return U, V
+    H = lsnmf_fit.coef()
+    print("H:", H.shape)
+    print('Mixture matrix:\n%s' % H)
 
+    print('K-L divergence: %5.3f' % lsnmf_fit.distance(metric='kl'))
 
-def create_substrate(intput):
+    print('Rss: %5.3f' % lsnmf_fit.fit.rss())
+    print('Evar: %5.3f' % lsnmf_fit.fit.evar())
+    print('Iterations: %d' % lsnmf_fit.n_iter)
+    print('Target estimate:\n%s' % np.dot(W, H))
+    return W, H
+
+def create_substrate(intput, epoch, h, w, m, n, bm):
     '''
     构建基底
-
+    划分原始图像并抽取每个子块的基
+    epoch为迭代次数
     :return:
     '''
 
-    print("图片共有：", len(intput))
-    bm = len(intput)  # 原始维度
-
-    h, w = 1024, 3072
-    m = 2  # 8
-    n = 6  # 24
     grid_h = int(h * 1.0 / m)  # 每个网格的高
     grid_w = int(w * 1.0 / n)  # 每个网格的宽
     divide_image = np.zeros([bm, m, n, grid_h, grid_w],
@@ -167,7 +201,7 @@ def create_substrate(intput):
     title = 1
     # print("==============开始分块处理文件夹内的图片==============")
     for input_path in intput:
-        print("开始处理第", title, "个，其地址为：", input_path)
+        # print("开始处理第", title, "个，其地址为：", input_path)
         img = cv2.imread(input_path, 0)  # 图片地址
         # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
@@ -188,16 +222,73 @@ def create_substrate(intput):
             for k in range(n):
                 X[i] = divide_image[i, j, k, ...].flatten()
 
-    print(X.shape)
-    U, V = nmf(X, 2, 10, 0.001)
+    # print(X.shape)
+    # U, V = nmf(X, 2, epoch, 0.001)
 
-    return V.T
+    W, H = nmf(X)
+
+
+    return H.T
 
 
 if __name__ == '__main__':
+
+    # 读取图像
     intput = read_directory("./BriNorm_image")
-    V = create_substrate(intput)
-    
+    print("图片共有：", len(intput))
+    bm = len(intput)  # 原始维度
+    epoch = 1  # 迭代次数
+    h, w = 1024, 3072
+    m = 2 # 8
+    n = 6  # 24
+    # 划分原始图像并抽取每个子块的基
+    H = create_substrate(intput, epoch, h, w, m, n, bm)
+    print(H.shape)
+    print(H)
+
+    # 对于未知子图，用基表示图像，寻找系数向量c
+    # 读取图片
+
+    testimg = read_directory("./Test_image")
+    print(len(testimg))
+    id = 1
+    for test_path in testimg:
+        print("开始处理第", id, "个，其地址为：", test_path)
+        img = cv2.imread(test_path, 0)  # 图片地址
+        # cv2.imshow(str(id), img)
+        # cv2.waitKey(0)
+
+        # （1）亮度变换
+        norm_img = bright_Norm_one(test_path, img)
+        # cv2.imshow(str(id), norm_img)
+        # cv2.waitKey()
+
+        # （2）划分图像
+        grid_h = int(h * 1.0 / m)  # 每个网格的高
+        grid_w = int(w * 1.0 / n)  # 每个网格的宽
+
+        divide_image2 = divide_method2(img, m + 1, n + 1)  # 该函数中m+1和n+1表示网格点个数，m和n分别表示分块的块数
+        print(divide_image2.shape)
+
+        # （3）用基底表示图
+        for i in range(divide_image2.shape[0]):
+            for j in range(divide_image2.shape[1]):
+                print(i, j)
+                d_pre = divide_image2[i, j].flatten()
+                y = d_pre.reshape(-1, 1)
+                print(y.shape)
+                # 把公式写出来
+                c = np.linalg.inv((H.T) * H) * (H.T)*y
+                    # * (H.T) * d_pre
+                print(c.shape)
+                print(c)
+
+        id += 1
+
+
+
+
+
     # print("图片共有：", len(intput))
     # bm = len(intput)  # 原始维度
     #
