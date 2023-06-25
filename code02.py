@@ -50,7 +50,7 @@ def bright_Norm(intput, l, h, w):
         # cv2.imwrite('./BriNorm_image'+'/'+filename, imageNorm)
     return normImg_list
 
-def bright_Norm_one(filename, image):
+def bright_Norm_one(image):
 
     Gamma = np.log(128.0/255.0) / np.log(cv2.mean(image)[0]/255.0)
     lookUpTable = np.empty((1, 256), np.uint8)
@@ -189,7 +189,7 @@ def create_substrate(intput, h, w, m, n):
 
     return H.T
 
-def compute_coef(testimg, l, m, n):
+def compute_coef( testimg, H, l, m, n):
     '''
     计算测试图片用基矩阵表示的向量
     :param testimg: 测试图像集合
@@ -205,7 +205,7 @@ def compute_coef(testimg, l, m, n):
         # cv2.waitKey(0)
 
         # （1）亮度变换
-        norm_img = bright_Norm_one(test_path, img)
+        norm_img = bright_Norm_one(img)
         # cv2.imshow(str(id), norm_img)
         # cv2.waitKey()
 
@@ -232,10 +232,37 @@ def compute_coef(testimg, l, m, n):
                 # print("leixing:", cn.dtype, ci.dtype)
                 # print(cn[id, i, j].shape)
                 # print(cn[id, i, j])
-
-
     id += 1
+    return cn
 
+
+
+def compute_coef_one(img, H, m, n):
+    # （1）亮度变换
+    norm_img = bright_Norm_one(img)
+    # cv2.imshow(str(id), norm_img)
+    # cv2.waitKey()
+
+    # （2）划分图像
+    divide_image2 = divide_method2(norm_img, m + 1, n + 1)  # 该函数中m+1和n+1表示网格点个数，m和n分别表示分块的块数
+    # print(divide_image2.shape)
+
+    # （3）用基底表示图
+    cn = np.zeros([ m, n, 100, 1], np.float64)
+    # cn.reshape((l, m, n, 100))
+    for i in range(divide_image2.shape[0]):
+        for j in range(divide_image2.shape[1]):
+            # print(i, j)
+            d_pre = divide_image2[i, j].flatten()
+            y = d_pre.reshape(-1, 1)
+            # print(y.shape)
+            # 把公式写出来
+            # print("先看看", np.linalg.inv((H.T) * H) * (H.T) * y)
+
+            ci = np.linalg.inv((H.T) * H) * (H.T) * y  # 系数向量c
+            # print("ci???????", ci.shape)
+            # print(ci)
+            cn[i, j] = ci
     return cn
 
 if __name__ == '__main__':
@@ -251,15 +278,23 @@ if __name__ == '__main__':
 
     # 划分原始图像并抽取每个子块的基
     H = create_substrate(norm_img_list, h, w, m, n)
-    print(H.shape)
-    print(H)
+    # print(H.shape)
+    # print(H)
 
     # 对于未知子图，用基表示图像，寻找系数向量c
-    testimg = read_directory("./Test_image")  # 读取图片
-    print(len(testimg))
-    c = compute_coef(testimg, bm, m, n)
+    # 处理一个目录
+    # testimg = read_directory("./test")  # 读取图片
+    # print(len(testimg))
+    # c = compute_coef(testimg, bm, m, n)
+    # print(c.shape)
+    # print(c)
+    # print(c[1, 1, 2])
+
+    # 处理单张图片
+    img = cv2.imread('000002.jpg', 0)
+    print(img.shape)
+    c = compute_coef_one(img, H, m, n)
     print(c.shape)
     print(c)
-    print(c[1, 1, 2])
 
 
