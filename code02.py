@@ -8,11 +8,6 @@ import scipy.sparse as spr
 import cv2
 import os
 
-from sklearn import decomposition
-
-# n_components：用于指定分解后矩阵的单个维度k，这个参数也可以看做，降维后希望留下的特征的数量；
-#
-# init：W矩阵和H矩阵的初始化方式，默认为‘nndsvdar’
 
 """
     采用降维方法
@@ -29,6 +24,32 @@ def read_directory(directory_name):
         file_list.append(str)
     return file_list
 
+def bright_Norm(intput, l, h, w):
+    """
+        调整采集图片的亮度色度问题
+        根据灰度、Gamma归一化亮度
+    """
+    normImg_list = np.zeros([l, h, w], np.uint8)  # 用于保存亮度变换后的图像
+
+    id = 0
+    for input_path in intput:
+        # print("开始处理第?????", id, "个，其地址为：", input_path)
+        image = cv2.imread(input_path, 0)  # 图片地址
+        # print(image.shape)
+        Gamma = np.log(128.0/255.0) / np.log(cv2.mean(image)[0]/255.0)
+        lookUpTable = np.empty((1, 256), np.uint8)
+
+        for i in range(256):
+            lookUpTable[0, i] = np.clip(pow(i / 255.0, Gamma)*255.0, 0, 255)
+
+        normImg_list[id] = cv2.LUT(image, lookUpTable)
+        id += 1
+        # cv2.imshow(filename, imageNorm)
+        # cv2.waitKey(0)
+        #
+        # cv2.imwrite('./BriNorm_image'+'/'+filename, imageNorm)
+    return normImg_list
+
 def bright_Norm_one(filename, image):
 
     Gamma = np.log(128.0/255.0) / np.log(cv2.mean(image)[0]/255.0)
@@ -41,8 +62,6 @@ def bright_Norm_one(filename, image):
 
     return imageNorm
 
-
-#
 # # 读取的目录
 # bright_Norm('./Original_image')
 def divide_method1(img, m, n):  # 分割成m行n列
@@ -106,66 +125,9 @@ def save_blocks(title, divide_image):  #
             # plt.imsave("./img_list/" + plotPath, divide_image[i, j, :], cmap='gray')  # 保存灰度图像
 
 
-# def nmf(X, r, k, e):
-#     '''
-#     X是原始矩阵
-#     r是分解的两个非负矩阵的隐变量维度，要远小于原始矩阵的维度
-#     k是迭代次数
-#     e是理想误差
-#
-#     input X
-#     output U,V
-#     '''
-#     d, n = X.shape
-#     # print(d,n)
-#     # U = np.mat(random.random((d, r)))
-#     U = np.mat(np.random.rand(d, r))
-#     # V = np.mat(random.random((n, r)))
-#     V = np.mat(np.random.rand(n, r))
-#     # print(U, V)
-#
-#     x = 1
-#     for x in range(k):
-#         print('---------------------------------------------------')
-#         print('开始第', x, '轮迭代')
-#         # error
-#         X_pre = U * V.T
-#         E = X - X_pre
-#         # print E
-#         err = 0.0
-#         for i in range(d):
-#             for j in range(n):
-#                 err += E[i, j] * E[i, j]  # 二范数，欧式距离
-#         print('误差：', err)
-#
-#         if err < e:
-#             break
-#         # update U
-#         a_u = U * (V.T) * V
-#         b_u = X * V
-#         for i_1 in range(d):
-#             for j_1 in range(r):
-#                 if a_u[i_1, j_1] != 0:
-#                     U[i_1, j_1] = U[i_1, j_1] * b_u[i_1, j_1] / a_u[i_1, j_1]
-#         # print(U)
-#
-#         # update V
-#         a_v = V * (U.T) * U
-#         b_v = X.T * U
-#         print(r, n)
-#         for i_2 in range(n):
-#             for j_2 in range(r):
-#                 if a_v[i_2, j_2] != 0:
-#                     V[i_2, j_2] = V[i_2, j_2] * b_v[i_2, j_2] / a_v[i_2, j_2]
-#         # print(V)
-#         print('第', x, '轮迭代结束')
-#
-#     return U, V
-
-
 def nmf(V):
 
-    lsnmf = nimfa.Lsnmf(V, max_iter=10, rank=2)
+    lsnmf = nimfa.Lsnmf(V, max_iter=100, rank=100)
     print(V.shape)
     lsnmf_fit = lsnmf()
 
@@ -185,29 +147,30 @@ def nmf(V):
     print('Target estimate:\n%s' % np.dot(W, H))
     return W, H
 
-def create_substrate(intput, epoch, h, w, m, n, bm):
+def create_substrate(intput, h, w, m, n):
+
     '''
     构建基底
     划分原始图像并抽取每个子块的基
-    epoch为迭代次数
     :return:
     '''
-
+    # print(intput.shape)
     grid_h = int(h * 1.0 / m)  # 每个网格的高
     grid_w = int(w * 1.0 / n)  # 每个网格的宽
     divide_image = np.zeros([bm, m, n, grid_h, grid_w],
                             np.uint8)  # 用于保存分割后的图像
-    print(divide_image.shape)
-    title = 1
-    # print("==============开始分块处理文件夹内的图片==============")
-    for input_path in intput:
-        # print("开始处理第", title, "个，其地址为：", input_path)
-        img = cv2.imread(input_path, 0)  # 图片地址
-        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # print(divide_image.shape)
 
+    # print("==============开始分块处理文件夹内的图片==============")
+    # for input_path in intput:
+        # print("开始处理第", title, "个，其地址为：", input_path)
+        # img = cv2.imread(input_path, 0)  # 图片地址
+        # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    for title in range(intput.shape[0]):
+        img = intput[title]
         divide_image2 = divide_method2(img, m + 1, n + 1)  # 该函数中m+1和n+1表示网格点个数，m和n分别表示分块的块数
         # save_blocks(title, divide_image2)
-        divide_image[title - 1] = divide_image2
+        divide_image[title] = divide_image2
         # print(divide_image[title-1, ...].shape)
         # print(divide_image2.shape)
         # print("第", title, "个已分块完毕")
@@ -222,38 +185,21 @@ def create_substrate(intput, epoch, h, w, m, n, bm):
             for k in range(n):
                 X[i] = divide_image[i, j, k, ...].flatten()
 
-    # print(X.shape)
-    # U, V = nmf(X, 2, epoch, 0.001)
-
     W, H = nmf(X)
-
 
     return H.T
 
-
-if __name__ == '__main__':
-
-    # 读取图像
-    intput = read_directory("./BriNorm_image")
-    print("图片共有：", len(intput))
-    bm = len(intput)  # 原始维度
-    epoch = 1  # 迭代次数
-    h, w = 1024, 3072
-    m = 2 # 8
-    n = 6  # 24
-    # 划分原始图像并抽取每个子块的基
-    H = create_substrate(intput, epoch, h, w, m, n, bm)
-    print(H.shape)
-    print(H)
-
-    # 对于未知子图，用基表示图像，寻找系数向量c
-    # 读取图片
-
-    testimg = read_directory("./Test_image")
-    print(len(testimg))
+def compute_coef(testimg, l, m, n):
+    '''
+    计算测试图片用基矩阵表示的向量
+    :param testimg: 测试图像集合
+    :param m: 纵向划分几块
+    :param n: 横向划分几块
+    :return: 系数向量
+    '''
     id = 1
     for test_path in testimg:
-        print("开始处理第", id, "个，其地址为：", test_path)
+        # print("开始处理第", id, "个，其地址为：", test_path)
         img = cv2.imread(test_path, 0)  # 图片地址
         # cv2.imshow(str(id), img)
         # cv2.waitKey(0)
@@ -264,89 +210,56 @@ if __name__ == '__main__':
         # cv2.waitKey()
 
         # （2）划分图像
-        grid_h = int(h * 1.0 / m)  # 每个网格的高
-        grid_w = int(w * 1.0 / n)  # 每个网格的宽
-
-        divide_image2 = divide_method2(img, m + 1, n + 1)  # 该函数中m+1和n+1表示网格点个数，m和n分别表示分块的块数
-        print(divide_image2.shape)
+        divide_image2 = divide_method2(norm_img, m + 1, n + 1)  # 该函数中m+1和n+1表示网格点个数，m和n分别表示分块的块数
+        # print(divide_image2.shape)
 
         # （3）用基底表示图
+        cn = np.zeros([l, m, n, 100, 1], np.float64)
+        # cn.reshape((l, m, n, 100))
         for i in range(divide_image2.shape[0]):
             for j in range(divide_image2.shape[1]):
-                print(i, j)
+                # print(i, j)
                 d_pre = divide_image2[i, j].flatten()
                 y = d_pre.reshape(-1, 1)
-                print(y.shape)
+                # print(y.shape)
                 # 把公式写出来
-                c = np.linalg.inv((H.T) * H) * (H.T)*y
-                    # * (H.T) * d_pre
-                print(c.shape)
-                print(c)
+                # print("先看看", np.linalg.inv((H.T) * H) * (H.T) * y)
 
-        id += 1
-
-
-
-
-
-    # print("图片共有：", len(intput))
-    # bm = len(intput)  # 原始维度
-    #
-    # h, w = 1024, 3072
-    # m = 2  # 8
-    # n = 6  # 24
-    # grid_h = int(h * 1.0 / m)  # 每个网格的高
-    # grid_w = int(w * 1.0 / n)  # 每个网格的宽
-    # divide_image = np.zeros([bm, m, n, grid_h, grid_w],
-    #                         np.uint8)   #  用于保存分割后的图像
-    # print(divide_image.shape)
-    # title = 1
-    # # print("==============开始分块处理文件夹内的图片==============")
-    # for input_path in intput:
-    #     print("开始处理第", title, "个，其地址为：", input_path)
-    #     img = cv2.imread(input_path, 0)  # 图片地址
-    #     # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    #
-    #     divide_image2 = divide_method2(img, m + 1, n + 1)  # 该函数中m+1和n+1表示网格点个数，m和n分别表示分块的块数
-    #     # save_blocks(title, divide_image2)
-    #     divide_image[title-1] = divide_image2
-    #     # print(divide_image[title-1, ...].shape)
-    #     # print(divide_image2.shape)
-    #     # print("第", title, "个已分块完毕")
-    #     # print("-----------------------------")
-    #     title += 1
-    # # print("==============完成全部分块处理文件夹的图片==============")
-    #
-    # # (2) 抽取
-    # X = np.zeros([bm, grid_h*grid_w], np.uint8)  # 用于保存分割后的图像
-    # for i in range(bm):
-    #     for j in range(m):
-    #         for k in range(n):
-    #             X[i] = divide_image[i, j, k, ...].flatten()
-    #
-    # print(X.shape)
-    # U, V = nmf(X, 2, 10, 0.001)
-
-    # print(V.shape)
-    # print(V.T)
-    # print(U.shape)
-    # print(U)
+                ci = np.linalg.inv((H.T) * H) * (H.T) * y  # 系数向量c
+                # print("ci???????", ci.shape)
+                # print(ci)
+                cn[id, i, j] = ci
+                # print("leixing:", cn.dtype, ci.dtype)
+                # print(cn[id, i, j].shape)
+                # print(cn[id, i, j])
 
 
-        #         print(divide_image[i, j, k, ...].shape)
-        #         plt.imshow(divide_image[i, j, k, ...], cmap='gray')
-        #         plt.show()
+    id += 1
 
-    # c = np.zeros(bm, np.uint8)  # 系数向量c  先假设是1个
-    # print(c)
-    # print(c.shape)
+    return cn
 
-    # for i in range(bm):
+if __name__ == '__main__':
 
-        # for j in range(m):
-        #     for k in range(n):
-        #         print(divide_image[i, j, k, ...].shape)
-        #         plt.imshow(divide_image[i, j, k, ...], cmap='gray')
-        #         plt.show()
+    # 读取图像
+    intput = read_directory("./Original_image")
+    print("图片共有：", len(intput))
+    bm = len(intput)  # 原始维度
+    h, w = 1024, 3072
+    m = 2 # 8
+    n = 6  # 24
+    norm_img_list = bright_Norm(intput, bm, h, w)
+
+    # 划分原始图像并抽取每个子块的基
+    H = create_substrate(norm_img_list, h, w, m, n)
+    print(H.shape)
+    print(H)
+
+    # 对于未知子图，用基表示图像，寻找系数向量c
+    testimg = read_directory("./Test_image")  # 读取图片
+    print(len(testimg))
+    c = compute_coef(testimg, bm, m, n)
+    print(c.shape)
+    print(c)
+    print(c[1, 1, 2])
 
 
