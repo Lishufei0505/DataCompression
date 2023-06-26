@@ -146,9 +146,9 @@ def save_blocks(title, divide_image):  #
             # plt.imsave("./img_list/" + plotPath, divide_image[i, j, :], cmap='gray')  # 保存灰度图像
 
 
-def nmf(V):
-
-    lsnmf = nimfa.Lsnmf(V, max_iter=100, rank=100)
+def nmf_ls(V, r):
+    lsnmf = nimfa.Lsnmf(V, seed='random_vcol', max_iter=100, rank=r, track_error=True)  # LSNMF with Random VCol initialization and rank estimation.
+    # lsnmf = nimfa.Lsnmf(V, max_iter=100, rank=r)
     # print(V.shape)
     lsnmf_fit = lsnmf()
 
@@ -168,10 +168,30 @@ def nmf(V):
     # print('Target estimate:\n%s' % np.dot(W, H))
     return W, H
 
-def create_substrate(intput, h, w, m, n):
+
+def nmf_standard(V, r):
+    nmf = nimfa.Nmf(V, max_iter=200, rank=r, update='euclidean', objective='fro')
+    nmf_fit = nmf()
+
+    W = nmf_fit.basis()
+    # print('Basis matrix:\n%s' % W.todense())
+
+    H = nmf_fit.coef()
+    # print('Mixture matrix:\n%s' % H.todense())
+    #
+    # print('Euclidean distance: %5.3f' % nmf_fit.distance(metric='euclidean'))
+
+    sm = nmf_fit.summary()
+    # print('Sparseness Basis: %5.3f  Mixture: %5.3f' % (sm['sparseness'][0], sm['sparseness'][1]))
+    # print('Iterations: %d' % sm['n_iter'])
+    # print('Target estimate:\n%s' % np.dot(W.todense(), H.todense()))
+    return W, H
+
+def create_substrate(intput, h, w, m, n, r):
 
     '''
     构建基底
+    r 基中向量的个数
     划分原始图像并抽取每个子块的基
     :return:
     '''
@@ -201,14 +221,14 @@ def create_substrate(intput, h, w, m, n):
 
     # (2) 抽取
     X = np.zeros([m, n, bm, grid_h * grid_w], np.uint8)  # 存储每一块抽取基矩阵的输入向量 [2,6,249,262144]
-    Basis = np.zeros([m, n, 100, grid_h * grid_w], np.uint8)  # 存储每一块的基矩阵[2, 6, 100, 262144]
+    Basis = np.zeros([m, n, r, grid_h * grid_w], np.uint8)  # 存储每一块的基矩阵[2, 6, 100, 262144]
     # print('X.shape:', X.shape)
     for i in range(m):
         for j in range(n):
             for k in range(bm):
                 X[i][j][k] = divide_image[k, i, j, ...].flatten()
             # print('X[i][j].shape:', X[i][j].shape)  # [249,262144]
-            W, H = nmf(X[i][j])  # H.T 是基矩阵
+            W, H = nmf_ls(X[i][j], r)  # H.T 是基矩阵
             # print('H shape:', H.shape)  # [100, 262144]
             Basis[i, j] = H
 
@@ -262,28 +282,29 @@ def compute_coef( testimg, H, l, m, n):
 
 
 
-def compute_coef_one(img, Basis, m, n):
+def compute_coef_one(img, Basis, m, n, r):
     # （1）亮度变换
     norm_img = bright_Norm_one(img)
     # cv2.imshow(str(id), norm_img)
-    # cv2.waitKey()
+    # cv2.waitKey(0)
 
     # （2）划分图像
     divide_image2 = divide_method2(norm_img, m + 1, n + 1)  # 该函数中m+1和n+1表示网格点个数，m和n分别表示分块的块数
     # print(divide_image2.shape)
 
     # （3）用基底表示图
-    cn = np.zeros([m, n, 100, 1], np.float64)
-    # cn.reshape((l, m, n, 100))
-    for i in range(divide_image2.shape[0]):
-        for j in range(divide_image2.shape[1]):
+    cn = np.zeros([m, n, r, 1], np.float64)
+    for i in range(m):
+        for j in range(n):
             # print(i, j)
+            # cv2.imshow('sub', divide_image2[i, j])
+            # cv2.waitKey(0)
             d_pre = divide_image2[i, j].flatten()
             y = d_pre.reshape(-1, 1)
             # print(y.shape)
             # 把公式写出来
             # print("先看看", np.linalg.inv((H.T) * H) * (H.T) * y)
-            ci = np.dot(np.dot(np.linalg.inv(np.dot(Basis[i, j], Basis[i, j].T)), (Basis[i, j])), y)  # 系数向量c
+            ci = np.dot(np.dot(np.linalg.pinv(np.dot(Basis[i, j], Basis[i, j].T)), Basis[i, j]), y)  # 系数向量c
             # ci = np.linalg.inv((Basis[i, j].T) * Basis[i, j]) * (Basis[i, j].T) * y  # 系数向量c
             # print("ci???????", ci.shape)
             # print(ci)
@@ -295,8 +316,16 @@ def compute_coef_one(img, Basis, m, n):
         for j in range(divide_image2.shape[1]):
             d_pre = divide_image2[i, j].flatten()
             y = d_pre.reshape(-1, 1)
-            print('打印出来看看', residuals[i, j].shape, y.shape, np.dot(Basis[i, j].T, cn[i, j]).shape)
-            residuals[i, j] = y - np.dot(Basis[i, j].T, cn[i, j])
+            print('y.shape', y.shape)
+            cv2.imshow('yuantu', y.reshape(512, 512))
+            cv2.waitKey(0)
+            # print('打印出来看看', residuals[i, j].shape, y.shape, np.dot(Basis[i, j].T, cn[i, j]).shape)
+            cv2.imshow('cehngji', (np.dot(Basis[i, j].T, cn[i, j])).reshape(512, 512))
+            cv2.waitKey(0)
+            residuals[i, j] = y - (np.dot(Basis[i, j].T, cn[i, j]))
+            cv2.imshow('cancha', residuals[i, j].reshape(512, 512))
+            cv2.waitKey(0)
+
     print('residuals.shape', residuals.shape)
     return cn, residuals
 
@@ -309,24 +338,32 @@ if __name__ == '__main__':
     h, w = 1024, 3072
     m = 2 # 8
     n = 6  # 24
+    r = 4
     norm_img_list = bright_Norm(intput, bm, h, w)
 
     # 划分原始图像并抽取每个子块的基
-    Basis = create_substrate(norm_img_list, h, w, m, n)
+    Basis = create_substrate(norm_img_list, h, w, m, n, r)
+
     print('Basis.shape:', Basis.shape)
+    # [2,6,100, 512*512]
+    for i in range(m):
+        for j in range(n):
+            for k in range(r):
+                cv2.imshow('basis', Basis[i, j, k].reshape(512, 512))
+                cv2.waitKey(0)
     # print(Basis)
 
     # 处理单张图片
     img = cv2.imread('000002.jpg', 0)
     print(img.shape)
 
-    c, residuals = compute_coef_one(img, Basis, m, n)
+    c, residuals = compute_coef_one(img, Basis, m, n, r)
     # print(c.shape)
     # print(c)
     for i in range(m):
         for j in range(n):
-            cv2.imshow('1', residuals[i, j])
-            cv2.waitKey()
+            # cv2.imshow('1', residuals[i, j].reshape(512, 512))
+            # cv2.waitKey(0)
             print(isSparse(residuals[i, j]))
 
     # 对于未知子图，用基表示图像，寻找系数向量c
@@ -341,4 +378,3 @@ if __name__ == '__main__':
 
 
 
-# 下一步应该就是用系数，恢复成图像块，然后和原图像块做差得到残差。
