@@ -16,6 +16,8 @@ import os
     （3）带压缩图片的每块分解到基图像上
 """
 
+SPARE_ELEMENT = 0
+SPARE_RATE = 0.5
 # 边里该文件夹下的文件名称
 def read_directory(directory_name):
     file_list = []
@@ -113,6 +115,25 @@ def divide_method2(img, m, n):  # 分割成m行n列
     return divide_image
 
 
+def isSparse(matrix):
+    """
+    Judge spare matrix.
+    :param matrix: matrix
+    :return: boolean
+    """
+    sum = len(matrix) * len(matrix[0])
+    spare = 0
+
+    for row in range(len(matrix)):
+        for column in range(len(matrix[row])):
+            if matrix[row][column] == SPARE_ELEMENT:
+                spare += 1
+
+    if spare / sum >= SPARE_RATE:
+        return True
+    else:
+        return False
+
 def save_blocks(title, divide_image):  #
     m, n = divide_image.shape[0], divide_image.shape[1]
     for i in range(m):
@@ -128,23 +149,23 @@ def save_blocks(title, divide_image):  #
 def nmf(V):
 
     lsnmf = nimfa.Lsnmf(V, max_iter=100, rank=100)
-    print(V.shape)
+    # print(V.shape)
     lsnmf_fit = lsnmf()
 
     W = lsnmf_fit.basis()
-    print("W:", W.shape)
-    print('Basis matrix:\n%s' % W)
+    # print("W:", W.shape)
+    # print('Basis matrix:\n%s' % W)
 
     H = lsnmf_fit.coef()
-    print("H:", H.shape)
-    print('Mixture matrix:\n%s' % H)
-
-    print('K-L divergence: %5.3f' % lsnmf_fit.distance(metric='kl'))
-
-    print('Rss: %5.3f' % lsnmf_fit.fit.rss())
-    print('Evar: %5.3f' % lsnmf_fit.fit.evar())
-    print('Iterations: %d' % lsnmf_fit.n_iter)
-    print('Target estimate:\n%s' % np.dot(W, H))
+    # print("H:", H.shape)
+    # print('Mixture matrix:\n%s' % H)
+    #
+    # print('K-L divergence: %5.3f' % lsnmf_fit.distance(metric='kl'))
+    #
+    # print('Rss: %5.3f' % lsnmf_fit.fit.rss())
+    # print('Evar: %5.3f' % lsnmf_fit.fit.evar())
+    # print('Iterations: %d' % lsnmf_fit.n_iter)
+    # print('Target estimate:\n%s' % np.dot(W, H))
     return W, H
 
 def create_substrate(intput, h, w, m, n):
@@ -154,12 +175,12 @@ def create_substrate(intput, h, w, m, n):
     划分原始图像并抽取每个子块的基
     :return:
     '''
-    # print(intput.shape)
+    print('input shape:', intput.shape)
     grid_h = int(h * 1.0 / m)  # 每个网格的高
     grid_w = int(w * 1.0 / n)  # 每个网格的宽
     divide_image = np.zeros([bm, m, n, grid_h, grid_w],
                             np.uint8)  # 用于保存分割后的图像
-    # print(divide_image.shape)
+    print('divide_image_shape:', divide_image.shape)
 
     # print("==============开始分块处理文件夹内的图片==============")
     # for input_path in intput:
@@ -179,15 +200,19 @@ def create_substrate(intput, h, w, m, n):
     # print("==============完成全部分块处理文件夹的图片==============")
 
     # (2) 抽取
-    X = np.zeros([bm, grid_h * grid_w], np.uint8)  # 用于保存分割后的图像
-    for i in range(bm):
-        for j in range(m):
-            for k in range(n):
-                X[i] = divide_image[i, j, k, ...].flatten()
+    X = np.zeros([m, n, bm, grid_h * grid_w], np.uint8)  # 存储每一块抽取基矩阵的输入向量 [2,6,249,262144]
+    Basis = np.zeros([m, n, 100, grid_h * grid_w], np.uint8)  # 存储每一块的基矩阵[2, 6, 100, 262144]
+    # print('X.shape:', X.shape)
+    for i in range(m):
+        for j in range(n):
+            for k in range(bm):
+                X[i][j][k] = divide_image[k, i, j, ...].flatten()
+            # print('X[i][j].shape:', X[i][j].shape)  # [249,262144]
+            W, H = nmf(X[i][j])  # H.T 是基矩阵
+            # print('H shape:', H.shape)  # [100, 262144]
+            Basis[i, j] = H
 
-    W, H = nmf(X)
-
-    return H.T
+    return Basis
 
 def compute_coef( testimg, H, l, m, n):
     '''
@@ -237,7 +262,7 @@ def compute_coef( testimg, H, l, m, n):
 
 
 
-def compute_coef_one(img, H, m, n):
+def compute_coef_one(img, Basis, m, n):
     # （1）亮度变换
     norm_img = bright_Norm_one(img)
     # cv2.imshow(str(id), norm_img)
@@ -248,7 +273,7 @@ def compute_coef_one(img, H, m, n):
     # print(divide_image2.shape)
 
     # （3）用基底表示图
-    cn = np.zeros([ m, n, 100, 1], np.float64)
+    cn = np.zeros([m, n, 100, 1], np.float64)
     # cn.reshape((l, m, n, 100))
     for i in range(divide_image2.shape[0]):
         for j in range(divide_image2.shape[1]):
@@ -258,12 +283,22 @@ def compute_coef_one(img, H, m, n):
             # print(y.shape)
             # 把公式写出来
             # print("先看看", np.linalg.inv((H.T) * H) * (H.T) * y)
-
-            ci = np.linalg.inv((H.T) * H) * (H.T) * y  # 系数向量c
+            ci = np.dot(np.dot(np.linalg.inv(np.dot(Basis[i, j], Basis[i, j].T)), (Basis[i, j])), y)  # 系数向量c
+            # ci = np.linalg.inv((Basis[i, j].T) * Basis[i, j]) * (Basis[i, j].T) * y  # 系数向量c
             # print("ci???????", ci.shape)
             # print(ci)
             cn[i, j] = ci
-    return cn
+
+    #  （4）计算残差
+    residuals = np.zeros([m, n, 512*512, 1], np.float64)
+    for i in range(divide_image2.shape[0]):
+        for j in range(divide_image2.shape[1]):
+            d_pre = divide_image2[i, j].flatten()
+            y = d_pre.reshape(-1, 1)
+            print('打印出来看看', residuals[i, j].shape, y.shape, np.dot(Basis[i, j].T, cn[i, j]).shape)
+            residuals[i, j] = y - np.dot(Basis[i, j].T, cn[i, j])
+    print('residuals.shape', residuals.shape)
+    return cn, residuals
 
 if __name__ == '__main__':
 
@@ -277,9 +312,22 @@ if __name__ == '__main__':
     norm_img_list = bright_Norm(intput, bm, h, w)
 
     # 划分原始图像并抽取每个子块的基
-    H = create_substrate(norm_img_list, h, w, m, n)
-    # print(H.shape)
-    # print(H)
+    Basis = create_substrate(norm_img_list, h, w, m, n)
+    print('Basis.shape:', Basis.shape)
+    # print(Basis)
+
+    # 处理单张图片
+    img = cv2.imread('000002.jpg', 0)
+    print(img.shape)
+
+    c, residuals = compute_coef_one(img, Basis, m, n)
+    # print(c.shape)
+    # print(c)
+    for i in range(m):
+        for j in range(n):
+            cv2.imshow('1', residuals[i, j])
+            cv2.waitKey()
+            print(isSparse(residuals[i, j]))
 
     # 对于未知子图，用基表示图像，寻找系数向量c
     # 处理一个目录
@@ -290,11 +338,7 @@ if __name__ == '__main__':
     # print(c)
     # print(c[1, 1, 2])
 
-    # 处理单张图片
-    img = cv2.imread('000002.jpg', 0)
-    print(img.shape)
-    c = compute_coef_one(img, H, m, n)
-    print(c.shape)
-    print(c)
 
 
+
+# 下一步应该就是用系数，恢复成图像块，然后和原图像块做差得到残差。
